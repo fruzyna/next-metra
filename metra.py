@@ -1,8 +1,10 @@
+#!/usr/bin/python3
 import argparse
 import urllib3
 import json
 import re
 
+from configparser import ConfigParser
 from datetime import datetime, date, time, timedelta
 from time import sleep
 
@@ -11,10 +13,22 @@ PASSWORD = ""
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
+# read from config file
+config = ConfigParser()
+config.read("metra.ini")
+USERNAME = config.get("DEFAULT", "username", fallback=USERNAME)
+PASSWORD = config.get("DEFAULT", "password", fallback=PASSWORD)
+DEFAULT_LINE = config.get("DEFAULT", "default_line", fallback="UP-NW")
+DEFAULT_STOP = config.get("DEFAULT", "default_stop", fallback="DESPLAINES")
+
+# assert the API key username and password are valid
+assert len(USERNAME) == 32, "32 character username required"
+assert len(PASSWORD) == 32, "32 character password required"
+
 # parse command line arguments
 parser = argparse.ArgumentParser(description='Continuously report upcoming Metra trains to a given station.')
-parser.add_argument("-l", "--line", dest="line", default="UP-NW", help='short train line name (UP-NW)')
-parser.add_argument("-s", "--stop", dest="stop", default="DESPLAINES", help='station identifier (DESPLAINES)')
+parser.add_argument("-l", "--line", dest="line", default=DEFAULT_LINE, help='short train line name (UP-NW)')
+parser.add_argument("-s", "--stop", dest="stop", default=DEFAULT_STOP, help='station identifier (DESPLAINES)')
 args = parser.parse_args()
 
 def make_request(url: str):
