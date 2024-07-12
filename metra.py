@@ -91,7 +91,8 @@ class Stop:
         self.time = datetime.combine(stop_date, stop_time)
 
     def __str__(self):
-        minutes = int((self.time - datetime.now()).seconds / 60)
+        delta = self.time - datetime.now()
+        minutes = int(delta.days * 24 * 60 + delta.seconds / 60)
         return f"{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {minutes} minutes {"[LIVE]" if self.live else ""}"
 
 # get all services from Metra
