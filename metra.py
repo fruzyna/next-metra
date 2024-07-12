@@ -98,7 +98,7 @@ class Stop:
 services = {s["service_id"]:s for s in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/calendar")}
 
 # get all trips from Metra and build trips for desired line
-trips = {t["trip_id"]:Trip(t["trip_id"], t["direction_id"] == 0, services[t["service_id"]]) for t in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/trips")
+trips = {t["trip_id"]:Trip(t["trip_id"], t["direction_id"] == 1, services[t["service_id"]]) for t in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/trips")
          if t["trip_id"].startswith(args.line)}
 
 # get all scheduled stops from Metra and add stops to appropriate line
