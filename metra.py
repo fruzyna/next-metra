@@ -87,7 +87,7 @@ class Stop:
         return int(delta.days * 24 * 60 + delta.seconds / 60)
 
     def __str__(self):
-        return f"{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {self.minutes} minutes {"[LIVE]" if self.live else ""}"
+        return f'{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {self.minutes} minutes {"[LIVE]" if self.live else ""}'
 
 
 class Metra:
