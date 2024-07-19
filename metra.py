@@ -14,7 +14,7 @@ WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", 
 
 # read from config file
 config = ConfigParser()
-config.read("metra.ini")
+config.read("config/metra.ini")
 USERNAME = config.get("DEFAULT", "username", fallback=USERNAME)
 PASSWORD = config.get("DEFAULT", "password", fallback=PASSWORD)
 
