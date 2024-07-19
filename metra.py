@@ -1,12 +1,11 @@
-#!/usr/bin/python3
-import argparse
 import urllib3
 import json
 import re
 
 from configparser import ConfigParser
 from datetime import datetime, date, time, timedelta
-from time import sleep
+from threading import Thread
+from time import sleep, monotonic
 
 USERNAME = ""
 PASSWORD = ""
@@ -18,18 +17,10 @@ config = ConfigParser()
 config.read("metra.ini")
 USERNAME = config.get("DEFAULT", "username", fallback=USERNAME)
 PASSWORD = config.get("DEFAULT", "password", fallback=PASSWORD)
-DEFAULT_LINE = config.get("DEFAULT", "default_line", fallback="UP-NW")
-DEFAULT_STOP = config.get("DEFAULT", "default_stop", fallback="DESPLAINES")
 
 # assert the API key username and password are valid
 assert len(USERNAME) == 32, "32 character username required"
 assert len(PASSWORD) == 32, "32 character password required"
-
-# parse command line arguments
-parser = argparse.ArgumentParser(description='Continuously report upcoming Metra trains to a given station.')
-parser.add_argument("-l", "--line", dest="line", default=DEFAULT_LINE, help='short train line name (UP-NW)')
-parser.add_argument("-s", "--stop", dest="stop", default=DEFAULT_STOP, help='station identifier (DESPLAINES)')
-args = parser.parse_args()
 
 def make_request(url: str):
     """Make a web request using the set username and password to the given URL."""
@@ -90,61 +81,80 @@ class Stop:
         # combine date and time into datetime
         self.time = datetime.combine(stop_date, stop_time)
 
-    def __str__(self):
+    @property
+    def minutes(self) -> int:
         delta = self.time - datetime.now()
-        minutes = int(delta.days * 24 * 60 + delta.seconds / 60)
-        return f"{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {minutes} minutes {"[LIVE]" if self.live else ""}"
+        return int(delta.days * 24 * 60 + delta.seconds / 60)
 
-# get all services from Metra
-services = {s["service_id"]:s for s in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/calendar")}
+    def __str__(self):
+        return f"{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {self.minutes} minutes {"[LIVE]" if self.live else ""}"
 
-# get all trips from Metra and build trips for desired line
-trips = {t["trip_id"]:Trip(t["trip_id"], t["direction_id"] == 1, services[t["service_id"]]) for t in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/trips")
-         if t["trip_id"].startswith(args.line)}
 
-# get all scheduled stops from Metra and add stops to appropriate line
-for stop in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/stop_times"):
-    tid = stop["trip_id"]
-    if tid.split("_")[0] == args.line and stop["stop_id"] == args.stop:
-        trips[tid].add_stop(stop["stop_id"], stop["arrival_time"])
+class Metra:
 
-# flatten list of stops from trips
-stops = []
-for tid in trips:
-    stops += trips[tid].stops
+    def __init__(self):
+        # get all services from Metra
+        services = {s["service_id"]:s for s in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/calendar")}
 
-while True:
-    # find the first (in the future) in-bound and out-bound trains
-    first_inbound = None
-    first_outbound = None
-    for s in stops:
-        if s.time > datetime.now():
-            if s.inbound and (first_inbound is None or s.time < first_inbound.time):
-                first_inbound = s
-            elif not s.inbound and (first_outbound is None or s.time < first_outbound.time):
-                first_outbound = s
+        # get all trips from Metra and build trips for desired line
+        self.trips = {t["trip_id"]:Trip(t["trip_id"], t["direction_id"] == 1, services[t["service_id"]]) for t in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/trips")}
 
-    # determine if there is a more accurate time
-    trains = make_request("https://gtfsapi.metrarail.com/gtfs/tripUpdates")
-    for train in trains:
-        tid = train["trip_update"]["trip"]["trip_id"]
-        if tid in trips:
-            for update in train["trip_update"]["stop_time_update"]:
-                if update["stop_id"] == args.stop:
-                    arrival = update["arrival"]
-                    if arrival is not None:
-                        s_time = datetime.fromisoformat(arrival["time"]["low"]).astimezone()
-                        estimated = Stop(tid, args.stop, trips[tid].inbound, s_time.date(), s_time.time().isoformat(), True)
-                        for stop in stops:
-                            if stop.trip_id == tid and stop.stop_id == args.stop:
-                                if trips[tid].inbound:
-                                    first_inbound = estimated
-                                else:
-                                    first_outbound = estimated
+        # get all scheduled stops from Metra and add stops to appropriate line
+        for stop in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/stop_times"):
+            self.trips[stop["trip_id"]].add_stop(stop["stop_id"], stop["arrival_time"])
 
-                                break
+        # flatten list of stops from trips
+        self.stops = []
+        for tid in self.trips:
+            self.stops += self.trips[tid].stops
 
-    print("----------")
-    print(first_inbound)
-    print(first_outbound)
-    sleep(60)
+        self.live = []
+        self.running = False
+        self.last_update = -1
+
+    def live_thread(self):
+        while self.running:
+            trains = make_request("https://gtfsapi.metrarail.com/gtfs/tripUpdates")
+            for train in trains:
+                tid = train["trip_update"]["trip"]["trip_id"]
+                if tid in self.trips:
+                    for update in train["trip_update"]["stop_time_update"]:
+                        arrival = update["arrival"]
+                        if arrival is not None:
+                            s_time = datetime.fromisoformat(arrival["time"]["low"]).astimezone()
+                            self.live.append(Stop(tid, update["stop_id"], self.trips[tid].inbound, s_time.date(), s_time.time().isoformat(), True))
+
+            self.last_update = monotonic()
+            sleep(30)
+
+    def start(self):
+        self.running = True
+        Thread(target=self.live_thread, daemon=True).start()
+
+    def stop(self):
+        self.running = False
+
+    def get_next(self, line, stop, live=True):
+        line = line.upper()
+        stop = stop.upper()
+
+        # find the first (in the future) in-bound and out-bound trains
+        first_inbound = None
+        first_outbound = None
+        for s in self.stops:
+            if s.stop_id == stop and s.line.startswith(line) and s.time > datetime.now():
+                if s.inbound and (first_inbound is None or s.time < first_inbound.time):
+                    first_inbound = s
+                elif not s.inbound and (first_outbound is None or s.time < first_outbound.time):
+                    first_outbound = s
+
+        if live:
+            # determine if there is a more accurate time
+            for s in self.live:
+                if s.stop_id == stop:
+                    if self.trips[s.trip_id].inbound and s.trip_id == first_inbound.trip_id :
+                        first_inbound = s
+                    elif not self.trips[s.trip_id].inbound and s.trip_id == first_outbound.trip_id:
+                        first_outbound = s
+
+        return first_inbound, first_outbound
