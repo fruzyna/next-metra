@@ -134,27 +134,38 @@ class Metra:
     def stop(self):
         self.running = False
 
-    def get_next(self, line, stop, live=True):
+    def get_next(self, line, stop, live=True, count=1):
         line = line.upper()
         stop = stop.upper()
 
-        # find the first (in the future) in-bound and out-bound trains
-        first_inbound = None
-        first_outbound = None
-        for s in self.stops:
-            if s.stop_id == stop and s.line.startswith(line) and s.time > datetime.now():
-                if s.inbound and (first_inbound is None or s.time < first_inbound.time):
-                    first_inbound = s
-                elif not s.inbound and (first_outbound is None or s.time < first_outbound.time):
-                    first_outbound = s
+        # get all trains in the next 6 hours (allow up to 15 minutes late)
+        now = datetime.now()
+        upcoming = [s for s in self.stops if s.stop_id == stop and s.line.startswith(line) and now - timedelta(minutes=15) < s.time < now + timedelta(hours=6)]
 
         if live:
-            # determine if there is a more accurate time
+            # determine if there is a more accurate (live) time
+            tids = [s.trip_id for s in upcoming]
             for s in self.live:
                 if s.stop_id == stop:
-                    if self.trips[s.trip_id].inbound and s.trip_id == first_inbound.trip_id :
-                        first_inbound = s
-                    elif not self.trips[s.trip_id].inbound and s.trip_id == first_outbound.trip_id:
-                        first_outbound = s
+                    # replace a matching stop with its live counterpart
+                    if s.trip_id in tids:
+                        upcoming[tids.index(s.trip_id)] = s
+                    # add a stop if it is entirely missing (likely very late)
+                    else:
+                        upcoming.append(s)
+                        upcoming.sort(key=lambda s: s.time)
 
-        return first_inbound, first_outbound
+        # filter out passed trains
+        upcoming = [s for s in upcoming if now < s.time]
+
+        # sort trains by time
+        upcoming.sort(key=lambda s: s.time)
+
+        # find the number of requested in-bound and out-bound trains
+        inbound = [s for s in upcoming if s.inbound][:count]
+        outbound = [s for s in upcoming if not s.inbound][:count]
+
+        if count == 1:
+            return inbound[0], outbound[0]
+        else:
+            return inbound, outbound
