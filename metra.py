@@ -86,8 +86,18 @@ class Stop:
         delta = self.time - datetime.now()
         return int(delta.days * 24 * 60 + delta.seconds / 60)
 
+    @property
+    def time_until(self) -> str:
+        minutes = self.minutes
+        if minutes < 60:
+            return f"{minutes} minutes"
+        elif minutes % 60 == 0:
+            return f"{minutes // 60} hours"
+        else:
+            return f"{minutes // 60} hr {minutes % 60:0=2d} mins"
+
     def __str__(self):
-        return f'{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {self.minutes} minutes {"[LIVE]" if self.live else ""}'
+        return f'{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {self.time_until} {"[LIVE]" if self.live else ""}'
 
 
 class Metra:
