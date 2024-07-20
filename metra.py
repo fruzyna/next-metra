@@ -130,6 +130,7 @@ class Metra:
     def live_thread(self):
         while self.running:
             trains = make_request("https://gtfsapi.metrarail.com/gtfs/tripUpdates")
+            live = []
             for train in trains:
                 tid = train["trip_update"]["trip"]["trip_id"]
                 if tid in self.trips:
@@ -137,8 +138,9 @@ class Metra:
                         arrival = update["arrival"]
                         if arrival is not None:
                             s_time = datetime.fromisoformat(arrival["time"]["low"]).astimezone()
-                            self.live.append(Stop(tid, update["stop_id"], self.trips[tid].inbound, s_time.date(), s_time.time().isoformat(), True))
+                            live.append(Stop(tid, update["stop_id"], self.trips[tid].inbound, s_time.date(), s_time.time().isoformat(), True))
 
+            self.live = live
             self.last_update = monotonic()
             sleep(30)
 
