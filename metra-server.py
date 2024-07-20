@@ -19,6 +19,8 @@ STYLES = '\
     border-radius: 50%;\
     background-color: red;\
 }'
+LINES = ''.join([f'<option value="{line}">{line}</option>' for line in metra.lines])
+STOPS = ''.join([f'<option value="{stop}">{stop}</option>' for stop in metra.stations])
 
 # build index to select line and stop
 @app.get('/', response_class=HTMLResponse)
@@ -34,10 +36,10 @@ async def index():
                 <center>\
                     <h1>Next Metra Trains at </h1>\
                     <form action="/stop">\
-                        <label for="line">Line:</label><br>\
-                        <input type="text" id="line" name="line"><br><br>\
-                        <label for="stop">Stop:</label><br>\
-                        <input type="text" id="stop" name="stop"><br><br>\
+                        <label for="line">Line:</label>\
+                        <select id="line" name="line">{LINES}</select><br><br>\
+                        <label for="stop">Stop:</label>\
+                        <select id="stop" name="stop">{STOPS}</select><br><br>\
                         <input type="submit" value="Search">\
                     </form>\
                 </center>\

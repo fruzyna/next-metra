@@ -118,6 +118,11 @@ class Metra:
         for tid in self.trips:
             self.stops += self.trips[tid].stops
 
+        self.lines = list({stop.line for stop in self.stops})
+        self.lines.sort()
+        self.stations = list({stop.stop_id for stop in self.stops})
+        self.stations.sort()
+
         self.live = []
         self.running = False
         self.last_update = -1
