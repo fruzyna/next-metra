@@ -30,7 +30,7 @@ try:
         print("----------")
         print(first_inbound)
         print(first_outbound)
-        sleep(args.interval)
+        sleep(int(args.interval))
 
 except KeyboardInterrupt:
     metra.stop()
