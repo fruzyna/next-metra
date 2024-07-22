@@ -157,16 +157,21 @@ class Metra:
 
         # get all trains in the next 6 hours (allow up to 15 minutes late)
         now = datetime.now()
-        upcoming = [s for s in self.stops if s.stop_id == stop and s.line.startswith(line) and now - timedelta(minutes=15) < s.time < now + timedelta(hours=6)]
+        upcoming = []
+        trains = []
+        for s in self.stops:
+            # there is something dumb with overlaping schedules producing duplicated trains, only prevent each train once
+            if s.stop_id == stop and s.line.startswith(line) and now - timedelta(minutes=15) < s.time < now + timedelta(hours=6) and s.train not in trains:
+                trains.append(s.train)
+                upcoming.append(s)
 
         if live:
             # determine if there is a more accurate (live) time
-            tids = [s.trip_id for s in upcoming]
             for s in self.live:
                 if s.stop_id == stop:
                     # replace a matching stop with its live counterpart
-                    if s.trip_id in tids:
-                        upcoming[tids.index(s.trip_id)] = s
+                    if s.train in trains:
+                        upcoming[trains.index(s.train)] = s
                     # add a stop if it is entirely missing (likely very late)
                     else:
                         upcoming.append(s)
