@@ -45,7 +45,8 @@ class Trip:
         # generate a list of dates from the start, end, and service
         start_date = date.fromisoformat(service["start_date"])
         end_date = date.fromisoformat(service["end_date"])
-        r_date = start_date
+        # skip previous days
+        r_date = date.today() if start_date < date.today() else start_date
         while r_date <= end_date:
             if service[WEEKDAYS[r_date.weekday()]]:
                 self.dates.append(r_date)
