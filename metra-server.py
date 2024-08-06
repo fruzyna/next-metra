@@ -22,6 +22,17 @@ STYLES = '\
 LINES = ''.join([f'<option value="{line}">{line}</option>' for line in metra.lines])
 STOPS = ''.join([f'<option value="{stop}">{stop}</option>' for stop in metra.stations])
 
+# build a map of lines to stops
+map = {line:set() for line in metra.lines}
+for stop in metra.stops:
+    map[stop.line].add(stop.stop_id)
+
+map = {line:sorted(list(map[line])) for line in metra.lines}
+
+# build a JS function to update the stops dropdown by the selected line
+stop_filter = "(event) => { map = " + str(map)
+stop_filter += "; document.getElementById('stop').innerHTML = map[event.target.value].map(stop => `<option values='${stop}'>${stop}</option>`).join(''); console.log(map, event.target.value, map[event.target.value]);}"
+
 # build index to select line and stop
 @app.get('/', response_class=HTMLResponse)
 async def index():
@@ -37,7 +48,7 @@ async def index():
                     <h1>Next Metra Trains at </h1>\
                     <form action="/stop">\
                         <label for="line">Line:</label>\
-                        <select id="line" name="line">{LINES}</select><br><br>\
+                        <select id="line" name="line" onchange="({stop_filter})(event)">{LINES}</select><br><br>\
                         <label for="stop">Stop:</label>\
                         <select id="stop" name="stop">{STOPS}</select><br><br>\
                         <input type="submit" value="Search">\
