@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from datetime import datetime
 
 from metra import Metra
 
@@ -89,6 +90,27 @@ async def stop(line="UP-NW", stop="DESPLAINES", count=3):
                     <h3>Outbound - #{outbound[0].train}</h3>\
                     <h2>{LIVE_STR if outbound[0].live else ""}{outbound[0].time_until}</h2>\
                     {''.join([build_line(outbound[i]) for i in range(1, len(outbound))])}\
+                </center>\
+            </body>\
+        </html>'
+
+# build stop page using data from API and query parameters
+@app.get('/time', response_class=HTMLResponse)
+async def time():
+    now = datetime.now()
+
+    return f'<!DOCTYPE html>\
+        <html lang="en">\
+            <head>\
+                <meta charset="utf-8"/>\
+                <title>Server Time</title>\
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">\
+            </head>\
+            <body>\
+                <center>\
+                    <h2>Current Server Time</h2>\
+                    <h2>{now.strftime("%A, %B %d")}</h2>\
+                    <h1>{now.strftime("%H:%M:%S")}</h1>\
                 </center>\
             </body>\
         </html>'
