@@ -79,6 +79,21 @@ async def stop(line="UP-NW", stop="DESPLAINES", count=3):
         inbound = [inbound]
         outbound = [outbound]
 
+    next_trains = ''
+    if inbound:
+        next_trains = f'<h3>Inbound - #{inbound[0].train}<h3>\
+            <h2>{LIVE_STR if inbound[0].live else ""}{inbound[0].time_until}</h2>\
+            {"".join([build_line(inbound[i]) for i in range(1, len(inbound))])}'
+    else:
+        next_trains += '<h3>Inbound - None</h3>'
+
+    if outbound:
+        next_trains += f'<h3>Outbound - #{outbound[0].train}</h3>\
+            <h2>{LIVE_STR if outbound[0].live else ""}{outbound[0].time_until}</h2>\
+            {"".join([build_line(outbound[i]) for i in range(1, len(outbound))])}'
+    else:
+        next_trains += '<h3>Outbound - None</h3>'
+
     return f'<!DOCTYPE html>\
         <html lang="en">\
             <head>\
@@ -90,12 +105,7 @@ async def stop(line="UP-NW", stop="DESPLAINES", count=3):
                 <center>\
                     <h2>Next {line} Trains at </h2>\
                     <h1>{stop}</h1>\
-                    <h3>Inbound - #{inbound[0].train}<h3>\
-                    <h2>{LIVE_STR if inbound[0].live else ""}{inbound[0].time_until}</h2>\
-                    {"".join([build_line(inbound[i]) for i in range(1, len(inbound))])}\
-                    <h3>Outbound - #{outbound[0].train}</h3>\
-                    <h2>{LIVE_STR if outbound[0].live else ""}{outbound[0].time_until}</h2>\
-                    {"".join([build_line(outbound[i]) for i in range(1, len(outbound))])}\
+                    {next_trains}\
                 </center>\
             </body>\
         </html>'
