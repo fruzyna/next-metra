@@ -22,6 +22,7 @@ PASSWORD = config.get("DEFAULT", "password", fallback=PASSWORD)
 assert len(USERNAME) == 32, "32 character username required"
 assert len(PASSWORD) == 32, "32 character password required"
 
+
 def make_request(url: str):
     """Make a web request using the set username and password to the given URL."""
     http = urllib3.PoolManager()
@@ -33,6 +34,7 @@ def make_request(url: str):
         exit(1)
 
     return json.loads(res.data)
+
 
 class Trip:
 
@@ -57,6 +59,7 @@ class Trip:
         """Add stops for each date at the given time."""
         for s_date in self.dates:
             self.stops.append(Stop(self.trip, stop_id, self.inbound, s_date, time_str))
+
 
 class Stop:
 
@@ -95,20 +98,23 @@ class Stop:
         elif minutes % 60 == 0:
             return f"{minutes // 60} hours"
         else:
-            return f"{minutes // 60} hr {minutes % 60:0=2d} mins"
+            return f"{minutes // 60} hr {minutes % 60:0=2d} min"
 
     def __str__(self):
-        return f'{self.line} {self.train} ({"In-Bound" if self.inbound else "Out-Bound"}) to {self.stop_id} in {self.time_until} {"[LIVE]" if self.live else ""}'
+        direction = "In-Bound" if self.inbound else "Out-Bound"
+        live = " [LIVE]" if self.live else ""
+        return f'{self.line} {self.train} ({direction}) to {self.stop_id} in {self.time_until}{live}'
 
 
 class Metra:
 
     def __init__(self):
         # get all services from Metra
-        services = {s["service_id"]:s for s in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/calendar")}
+        services = {s["service_id"]: s for s in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/calendar")}
 
         # get all trips from Metra and build trips for desired line
-        self.trips = {t["trip_id"]:Trip(t["trip_id"], t["direction_id"] == 1, services[t["service_id"]]) for t in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/trips")}
+        self.trips = {t["trip_id"]: Trip(t["trip_id"], t["direction_id"] == 1, services[t["service_id"]])
+                      for t in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/trips")}
 
         # get all scheduled stops from Metra and add stops to appropriate line
         for stop in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/stop_times"):
@@ -139,7 +145,9 @@ class Metra:
                         arrival = update["arrival"]
                         if arrival is not None:
                             s_time = datetime.fromisoformat(arrival["time"]["low"]).astimezone()
-                            live.append(Stop(tid, update["stop_id"], self.trips[tid].inbound, s_time.date(), s_time.time().isoformat(), True))
+                            l_date = s_time.date()
+                            l_time = s_time.time().isoformat()
+                            live.append(Stop(tid, update["stop_id"], self.trips[tid].inbound, l_date, l_time, True))
 
             self.live = live
             self.last_update = monotonic()
@@ -161,8 +169,9 @@ class Metra:
         upcoming = []
         trains = []
         for s in self.stops:
-            # there is something dumb with overlaping schedules producing duplicated trains, only prevent each train once
-            if s.stop_id == stop and s.line.startswith(line) and now - timedelta(minutes=15) < s.time < now + timedelta(hours=6) and s.train not in trains:
+            # random overlapping schedules produce duplicated trains, only prevent each train once
+            if s.stop_id == stop and s.line.startswith(line) and s.train not in trains and \
+                    now - timedelta(minutes=15) < s.time < now + timedelta(hours=6):
                 trains.append(s.train)
                 upcoming.append(s)
 
@@ -176,13 +185,13 @@ class Metra:
                     # add a stop if it is entirely missing (likely very late)
                     else:
                         upcoming.append(s)
-                        upcoming.sort(key=lambda s: s.time)
+                        upcoming.sort(key=lambda u: u.time)
 
         # filter out passed trains
         upcoming = [s for s in upcoming if now < s.time]
 
         # sort trains by time
-        upcoming.sort(key=lambda s: s.time)
+        upcoming.sort(key=lambda u: u.time)
 
         # find the number of requested in-bound and out-bound trains
         inbound = [s for s in upcoming if s.inbound][:count]

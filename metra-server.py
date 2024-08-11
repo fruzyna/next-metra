@@ -24,15 +24,21 @@ LINES = ''.join([f'<option value="{line}">{line}</option>' for line in metra.lin
 STOPS = ''.join([f'<option value="{stop}">{stop}</option>' for stop in metra.stations])
 
 # build a map of lines to stops
-map = {line:set() for line in metra.lines}
+stop_map = {line: set() for line in metra.lines}
 for stop in metra.stops:
-    map[stop.line].add(stop.stop_id)
+    stop_map[stop.line].add(stop.stop_id)
 
-map = {line:sorted(list(map[line])) for line in metra.lines}
+stop_map = {line: sorted(list(stop_map[line])) for line in metra.lines}
 
 # build a JS function to update the stops dropdown by the selected line
-stop_filter = "(event) => { map = " + str(map)
-stop_filter += "; document.getElementById('stop').innerHTML = map[event.target.value].map(stop => `<option values='${stop}'>${stop}</option>`).join(''); console.log(map, event.target.value, map[event.target.value]);}"
+stop_filter = "(event) => { map = " + str(stop_map) + ";\
+document.getElementById('stop').innerHTML = map[event.target.value].map(stop => " \
+              "`<option values='${stop}'>${stop}</option>`).join('');\
+console.log(map, event.target.value, map[event.target.value]);}"
+
+base_headers = '<meta charset="utf-8"/>\
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">'
+
 
 # build index to select line and stop
 @app.get('/', response_class=HTMLResponse)
@@ -40,9 +46,8 @@ async def index():
     return f'<!DOCTYPE html>\
         <html lang="en">\
             <head>\
-                <meta charset="utf-8"/>\
+                {base_headers}\
                 <title>Metra Status</title>\
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">\
             </head>\
             <body>\
                 <center>\
@@ -58,8 +63,10 @@ async def index():
             </body>\
         </html>'
 
+
 def build_line(stop) -> str:
     return f"#{stop.train} - {stop.time_until}<br>"
+
 
 # build stop page using data from API and query parameters
 @app.get('/stop', response_class=HTMLResponse)
@@ -75,9 +82,8 @@ async def stop(line="UP-NW", stop="DESPLAINES", count=3):
     return f'<!DOCTYPE html>\
         <html lang="en">\
             <head>\
-                <meta charset="utf-8"/>\
+                {base_headers}\
                 <title>Metra {line} Status</title>\
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">\
                 <style>{STYLES}</style>\
             </head>\
             <body>\
@@ -86,13 +92,14 @@ async def stop(line="UP-NW", stop="DESPLAINES", count=3):
                     <h1>{stop}</h1>\
                     <h3>Inbound - #{inbound[0].train}<h3>\
                     <h2>{LIVE_STR if inbound[0].live else ""}{inbound[0].time_until}</h2>\
-                    {''.join([build_line(inbound[i]) for i in range(1, len(inbound))])}\
+                    {"".join([build_line(inbound[i]) for i in range(1, len(inbound))])}\
                     <h3>Outbound - #{outbound[0].train}</h3>\
                     <h2>{LIVE_STR if outbound[0].live else ""}{outbound[0].time_until}</h2>\
-                    {''.join([build_line(outbound[i]) for i in range(1, len(outbound))])}\
+                    {"".join([build_line(outbound[i]) for i in range(1, len(outbound))])}\
                 </center>\
             </body>\
         </html>'
+
 
 # build stop page using data from API and query parameters
 @app.get('/time', response_class=HTMLResponse)
@@ -102,9 +109,8 @@ async def time():
     return f'<!DOCTYPE html>\
         <html lang="en">\
             <head>\
-                <meta charset="utf-8"/>\
+                {base_headers}\
                 <title>Server Time</title>\
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">\
             </head>\
             <body>\
                 <center>\
