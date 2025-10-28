@@ -12,8 +12,8 @@ from zipfile import ZipFile
 from google.transit import gtfs_realtime_pb2
 
 TOKEN = ""
-LIVE_ENDPOINT = "https://gtfspublic.metrarr.com/gtfs/public"
-SCHEDULE_ENDPOINT = "https://schedules.metrarail.com/gtfs"
+LIVE_BASE_URL = "https://gtfspublic.metrarr.com/gtfs/public"
+SCHEDULE_BASE_URL = "https://schedules.metrarail.com/gtfs"
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 CONFIG_DIR = Path("config")
@@ -27,9 +27,9 @@ assert len(TOKEN) == 51, "51 character token required"
 
 http = urllib3.PoolManager(3)
 
-def make_request(path: str):
-    """Make a web request using the set username and password to the given URL."""
-    url = f"{LIVE_ENDPOINT}/{path}?api_token={TOKEN}"
+def request_feed_msg(path: str):
+    """Make a web request using the API token, then parse it as a FeedMessage protobuf."""
+    url = f"{LIVE_BASE_URL}/{path}?api_token={TOKEN}"
     res = http.request("GET", url)
 
     if res.status != 200:
@@ -42,33 +42,23 @@ def make_request(path: str):
 
 
 def csv_to_dict(file: Path) -> dict:
+    """Open a given CSV file and build a dictionary from the contents."""
     with open(file, "r") as f:
         reader = csv.reader(f)
         rows = [r for r in reader]
-        header = [c.strip() for c in rows.pop(0)]
-        data = {}
-        for row in rows:
-            data[row[0]] = {}
-            for i, col in enumerate(header[1:]):
-                data[row[0]][col] = row[i + 1].strip()
-    
-    return data
+
+    header = [c.strip() for c in rows.pop(0)][1:]
+    return {row.pop(0):{col:row[i].strip() for i, col in enumerate(header)} for row in rows}
 
 
 def csv_to_list(file: Path) -> list:
+    """Open a given CSV file and build a list of dictionaries from the contents."""
     with open(file, "r") as f:
         reader = csv.reader(f)
         rows = [r for r in reader]
-        header = rows.pop(0)
-        data = []
-        for row in rows:
-            entry = {}
-            for i, col in enumerate(header):
-                entry[col.strip()] = row[i].strip()
 
-            data.append(entry)
-    
-    return data
+    header = [c.strip() for c in rows.pop(0)]
+    return [{col:row[i].strip() for i, col in enumerate(header)} for row in rows]
 
 class Trip:
 
@@ -143,29 +133,49 @@ class Stop:
 class Metra:
 
     def __init__(self):
-        res = http.request("GET", f"{SCHEDULE_ENDPOINT}/published.txt")
+        self.live = []
+        self.trips = []
+        self.stops = []
+        self.lines = []
+        self.stations = []
+        self.running = False
+        self.last_update = -1
+        self.latest_schedule = ""
+
+        self.fetch_schedule()
+        self.update_schedule()
+
+    def fetch_schedule(self):
+        """Check for the latest schedule, if it is new fetch it and extract it to config/."""
+        res = http.request("GET", f"{SCHEDULE_BASE_URL}/published.txt")
         if res.status != 200:
             print("Invalid response", res.status)
             exit(1)
 
-        date_str = datetime.strptime(res.data.decode(), '%m/%d/%y %I:%M:%S %p America/Chicago')
-        latest_schedule = CONFIG_DIR / f"{date_str.isoformat()}"
-        if not latest_schedule.exists():
+        schedule_date = datetime.strptime(res.data.decode(), '%m/%d/%y %I:%M:%S %p America/Chicago')
+        self.latest_schedule = CONFIG_DIR / f"{schedule_date.isoformat()}"
+        if not self.latest_schedule.exists():
             zip_file = "/tmp/schedule.zip"
-            urlretrieve(f"{SCHEDULE_ENDPOINT}/schedule.zip", zip_file)
+            urlretrieve(f"{SCHEDULE_BASE_URL}/schedule.zip", zip_file)
             with ZipFile(zip_file, 'r') as zip_ref:
-                zip_ref.extractall(latest_schedule)
+                zip_ref.extractall(self.latest_schedule)
 
+            return True
+
+        return False
+
+    def update_schedule(self):
+        """Update the schedule based on the latest fetched schedule"""
         # get all services from Metra
-        services = csv_to_dict(f"{latest_schedule}/calendar.txt")
+        services = csv_to_dict(f"{self.latest_schedule}/calendar.txt")
 
         # get all trips from Metra and build trips for desired line
-        trips = csv_to_list(f"{latest_schedule}/trips.txt")
+        trips = csv_to_list(f"{self.latest_schedule}/trips.txt")
         self.trips = {t["trip_id"]: Trip(t["trip_id"], t["direction_id"] == "1", services[t["service_id"]])
                       for t in trips}
 
         # get all scheduled stops from Metra and add stops to appropriate line
-        for stop in csv_to_list(f"{latest_schedule}/stop_times.txt"):
+        for stop in csv_to_list(f"{self.latest_schedule}/stop_times.txt"):
             self.trips[stop["trip_id"]].add_stop(stop["stop_id"], stop["arrival_time"])
 
         # flatten list of stops from trips
@@ -178,13 +188,13 @@ class Metra:
         self.stations = list({stop.stop_id for stop in self.stops})
         self.stations.sort()
 
-        self.live = []
-        self.running = False
-        self.last_update = -1
-
-    def live_thread(self):
+    def live_thread(self, interval_sec=30):
+        """Check for schedule updates and fetch live data every 30 seconds."""
         while self.running:
-            trains = make_request("tripUpdates")
+            if self.fetch_schedule:
+                self.update_schedule()
+
+            trains = request_feed_msg("tripUpdates")
             live = []
             for train in trains:
                 tid = train.trip_update.trip.trip_id
@@ -199,16 +209,19 @@ class Metra:
 
             self.live = live
             self.last_update = monotonic()
-            sleep(30)
+            sleep(interval_sec)
 
     def start(self):
+        """Start polling the API."""
         self.running = True
         Thread(target=self.live_thread, daemon=True).start()
 
     def stop(self):
+        """Stop polling the API."""
         self.running = False
 
     def get_next(self, line, stop, live=True, count=1):
+        """Determine the next train(s) in each direction at the given stop."""
         line = line.upper()
         stop = stop.upper()
 
