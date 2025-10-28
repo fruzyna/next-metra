@@ -1,0 +1,3 @@
+gtfs-realtime-bindings
+fastapi[standard]
+uvicorn[standard]
