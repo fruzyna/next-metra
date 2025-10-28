@@ -9,8 +9,7 @@ You can request a pair [here](https://metra.com/developers).
 Once you receive your key pair, place them in the username and password fields in a `metra.ini` file, see the example format below.
 ```
 [DEFAULT]
-username=12345678901234567890123456789012
-password=12345678901234567890123456789012
+token=123456789012345678901234567890123456789012345678901
 default_line=UP-NW
 default_stop=DESPLAINES
 ```
