@@ -11,7 +11,7 @@
 		}
 	},
 
-	"postCreateCommand": "pip3 install -r .devcontainer/requirements.txt",
+	"postCreateCommand": "pip3 install -r requirements.txt",
 
 	"customizations": {
 		"vscode": {
