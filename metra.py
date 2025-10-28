@@ -1,40 +1,74 @@
 import urllib3
-import json
+import csv
 import re
 
 from configparser import ConfigParser
 from datetime import datetime, date, time, timedelta
 from threading import Thread
 from time import sleep, monotonic
+from urllib.request import urlretrieve
+from pathlib import Path
+from zipfile import ZipFile
+from google.transit import gtfs_realtime_pb2
 
-USERNAME = ""
-PASSWORD = ""
-
+TOKEN = ""
+LIVE_ENDPOINT = "https://gtfspublic.metrarr.com/gtfs/public"
+SCHEDULE_ENDPOINT = "https://schedules.metrarail.com/gtfs"
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+CONFIG_DIR = Path("config")
 
 # read from config file
 config = ConfigParser()
-config.read("config/metra.ini")
-USERNAME = config.get("DEFAULT", "username", fallback=USERNAME)
-PASSWORD = config.get("DEFAULT", "password", fallback=PASSWORD)
+config.read(CONFIG_DIR / "metra.ini")
+TOKEN = config.get("DEFAULT", "token", fallback=TOKEN)
 
-# assert the API key username and password are valid
-assert len(USERNAME) == 32, "32 character username required"
-assert len(PASSWORD) == 32, "32 character password required"
+assert len(TOKEN) == 51, "51 character token required"
 
+http = urllib3.PoolManager(3)
 
-def make_request(url: str):
+def make_request(path: str):
     """Make a web request using the set username and password to the given URL."""
-    http = urllib3.PoolManager()
-    headers = urllib3.make_headers(basic_auth=f"{USERNAME}:{PASSWORD}")
-    res = http.request("GET", url, headers=headers)
+    url = f"{LIVE_ENDPOINT}/{path}?api_token={TOKEN}"
+    res = http.request("GET", url)
 
     if res.status != 200:
         print("Invalid response", res.status)
         exit(1)
 
-    return json.loads(res.data)
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.ParseFromString(res.data)
+    return feed.entity
 
+
+def csv_to_dict(file: Path) -> dict:
+    with open(file, "r") as f:
+        reader = csv.reader(f)
+        rows = [r for r in reader]
+        header = [c.strip() for c in rows.pop(0)]
+        data = {}
+        for row in rows:
+            data[row[0]] = {}
+            for i, col in enumerate(header[1:]):
+                data[row[0]][col] = row[i + 1].strip()
+    
+    return data
+
+
+def csv_to_list(file: Path) -> list:
+    with open(file, "r") as f:
+        reader = csv.reader(f)
+        rows = [r for r in reader]
+        header = rows.pop(0)
+        data = []
+        for row in rows:
+            entry = {}
+            for i, col in enumerate(header):
+                entry[col.strip()] = row[i].strip()
+
+            data.append(entry)
+    
+    return data
 
 class Trip:
 
@@ -50,7 +84,7 @@ class Trip:
         # skip previous days
         r_date = date.today() if start_date < date.today() else start_date
         while r_date <= end_date:
-            if service[WEEKDAYS[r_date.weekday()]]:
+            if service[WEEKDAYS[r_date.weekday()]] == "1":
                 self.dates.append(r_date)
 
             r_date += timedelta(days=1)
@@ -109,15 +143,29 @@ class Stop:
 class Metra:
 
     def __init__(self):
+        res = http.request("GET", f"{SCHEDULE_ENDPOINT}/published.txt")
+        if res.status != 200:
+            print("Invalid response", res.status)
+            exit(1)
+
+        date_str = datetime.strptime(res.data.decode(), '%m/%d/%y %I:%M:%S %p America/Chicago')
+        latest_schedule = CONFIG_DIR / f"{date_str.isoformat()}"
+        if not latest_schedule.exists():
+            zip_file = "/tmp/schedule.zip"
+            urlretrieve(f"{SCHEDULE_ENDPOINT}/schedule.zip", zip_file)
+            with ZipFile(zip_file, 'r') as zip_ref:
+                zip_ref.extractall(latest_schedule)
+
         # get all services from Metra
-        services = {s["service_id"]: s for s in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/calendar")}
+        services = csv_to_dict(f"{latest_schedule}/calendar.txt")
 
         # get all trips from Metra and build trips for desired line
-        self.trips = {t["trip_id"]: Trip(t["trip_id"], t["direction_id"] == 1, services[t["service_id"]])
-                      for t in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/trips")}
+        trips = csv_to_list(f"{latest_schedule}/trips.txt")
+        self.trips = {t["trip_id"]: Trip(t["trip_id"], t["direction_id"] == "1", services[t["service_id"]])
+                      for t in trips}
 
         # get all scheduled stops from Metra and add stops to appropriate line
-        for stop in make_request("https://gtfsapi.metrarail.com/gtfs/schedule/stop_times"):
+        for stop in csv_to_list(f"{latest_schedule}/stop_times.txt"):
             self.trips[stop["trip_id"]].add_stop(stop["stop_id"], stop["arrival_time"])
 
         # flatten list of stops from trips
@@ -136,18 +184,18 @@ class Metra:
 
     def live_thread(self):
         while self.running:
-            trains = make_request("https://gtfsapi.metrarail.com/gtfs/tripUpdates")
+            trains = make_request("tripUpdates")
             live = []
             for train in trains:
-                tid = train["trip_update"]["trip"]["trip_id"]
+                tid = train.trip_update.trip.trip_id
                 if tid in self.trips:
-                    for update in train["trip_update"]["stop_time_update"]:
-                        arrival = update["arrival"]
+                    for update in train.trip_update.stop_time_update:
+                        arrival = update.arrival
                         if arrival is not None:
-                            s_time = datetime.fromisoformat(arrival["time"]["low"]).astimezone()
+                            s_time = datetime.fromtimestamp(arrival.time)
                             l_date = s_time.date()
                             l_time = s_time.time().isoformat()
-                            live.append(Stop(tid, update["stop_id"], self.trips[tid].inbound, l_date, l_time, True))
+                            live.append(Stop(tid, update.stop_id, self.trips[tid].inbound, l_date, l_time, True))
 
             self.live = live
             self.last_update = monotonic()
